@@ -1,0 +1,3 @@
+-- Créez deux (2) départements 
+-- Ajoutez cinq (5) cours par département
+-- Créez quatre (4) enseignants, les associer à un département et à un cours 
