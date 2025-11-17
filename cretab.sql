@@ -1,9 +1,15 @@
---  Assurez-vous de bien identifier les contraintes de valeur (NOT NULL) dans vos tables, ainsi que les cle´s candidates (UNIQUE). 
+-- RUFFAULT--RAVENEL Gémino
+-- VICAT Louis
 
--- Suppression des tables si elles existent, ordre inverse des dépendances
 SET SQLBLANKLINES ON
 SET DEFINE OFF
 
+
+-------------------------------------------
+----------- CREATION DES TABLES -----------
+-------------------------------------------
+
+-- Suppression des tables existantes
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE Inscriptions CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE CoursPrealables CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
@@ -26,7 +32,7 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE Personnes CASCADE CONSTRAINTS'; EXCEPTION WH
 /
 COMMIT;
 
--- Création de la table Personnes
+-- Personnes
 CREATE TABLE Personnes (
     IdPersonne                      NUMBER(10)      PRIMARY KEY,
     PersonneNom                     VARCHAR2(50)    NOT NULL,
@@ -34,26 +40,27 @@ CREATE TABLE Personnes (
     PersonneNumeroAssuranceSocial   NUMBER(20)      NOT NULL UNIQUE,
     PersonneCourriel                VARCHAR2(100)   NOT NULL,
     PersonneTel                     VARCHAR2(20),
-    PersonneDateDeNaissance         DATE,
-    
-    CONSTRAINT FK_PERSONNE_CONTACT  FOREIGN KEY (PersonneCoordonneePerso) REFERENCES Personnes (IdPersonne)
+    PersonneDateDeNaissance         DATE
 );
+COMMIT;
 
 -- Départements
 CREATE TABLE Departements (
     IdDepartement                   NUMBER(10)      PRIMARY KEY,
     DepartementNom                  VARCHAR2(100)   NOT NULL UNIQUE,
     DepartementNum                  NUMBER(10)      NOT NULL,
-    DepartementDirecteur            NUMBER(10)
+    DepartementDirecteur            NUMBER(10)      DEFAULT NULL
+    -- DepartementDirecteur est une clé étrangère vers Enseignants, mais la table n'existe pas encore. La contrainte serra ajouter via un ALTER TABLE a la fin.
 );
+COMMIT;
 
--- Enseignants, clé primaire réutilise IdPersonne (relation "is-a")
+-- Enseignants
 CREATE TABLE Enseignants (
     IdEnseignant                    NUMBER(10)      PRIMARY KEY,
-    EnseignantDateEmbauche          DATE            NOT NULL DEFAULT SYSDATE,
+    EnseignantDateEmbauche          DATE            DEFAULT SYSDATE NOT NULL,
     EnseignantStatutEnseignant      NUMBER(2)       NOT NULL,
     EnseignantNumLocal              VARCHAR2(7)     NOT NULL,
-    EnseignantNumPoste              NUMBER(4)      NOT NULL,
+    EnseignantNumPoste              NUMBER(4)       NOT NULL,
     EnseignantAdresseCivique        VARCHAR2(100)   NOT NULL,
     EnseignantCourriel              VARCHAR2(100)   NOT NULL,
     EnseignantDepartement           NUMBER(10)      NOT NULL,
@@ -64,12 +71,18 @@ CREATE TABLE Enseignants (
     CONSTRAINT CHK_ENSEIGNANT_LOCAL_FORMAT CHECK (REGEXP_LIKE(EnseignantNumLocal, '^[A-G][0-9]-[1-4][0-9]{3}$')),
     CONSTRAINT CHK_ENSEIGNANT_POSTE CHECK (EnseignantNumPoste BETWEEN 0 AND 9999)
 );
+COMMIT;
 
--- Étudiants, clé primaire réutilise IdPersonne
+-- Un département a un directeur (qui est un enseignant)
+ALTER TABLE Departements
+ADD CONSTRAINT FK_DEPT_DIRECTEUR FOREIGN KEY (DepartementDirecteur) REFERENCES Enseignants (IdEnseignant);
+COMMIT;
+
+-- Étudiants
 CREATE TABLE Etudiants (
     IdEtudiant                      NUMBER(10)      PRIMARY KEY,
     EtudiantCodePermanent           VARCHAR2(30)    NOT NULL UNIQUE,
-    EtudiantDateInscription         DATE            NOT NULL DEFAULT SYSDATE,
+    EtudiantDateInscription         DATE            DEFAULT SYSDATE NOT NULL,
     EtudiantStatut                  VARCHAR2(1)     NOT NULL,
     EtudiantCourriel                VARCHAR2(100)   NOT NULL,
     EtudiantDepartement             NUMBER(10)      NOT NULL,
@@ -78,8 +91,9 @@ CREATE TABLE Etudiants (
     CONSTRAINT FK_ETUDIANT_DEPT FOREIGN KEY (EtudiantDepartement) REFERENCES Departements (IdDepartement),
     CONSTRAINT CHK_ETUDIANT_STATUT CHECK (EtudiantStatut IN ('C','A','T','S','P'))
 );
+COMMIT;
 
--- Adresse civique, peut référencer un étudiant (optionnel)
+-- Adresse civique
 CREATE TABLE AdresseCivique (
     IdAdresseCivique                NUMBER(10)      PRIMARY KEY,
     AdresseCiviqueTitre             VARCHAR2(30),
@@ -88,6 +102,7 @@ CREATE TABLE AdresseCivique (
 
     CONSTRAINT FK_ADRESSE_ETUDIANT FOREIGN KEY (AdresseCiviqueEtudiant) REFERENCES Etudiants (IdEtudiant)
 );
+COMMIT;
 
 -- Cours
 CREATE TABLE Cours (
@@ -107,6 +122,7 @@ CREATE TABLE Cours (
     CONSTRAINT CHK_COURS_NBHEURES_LABO CHECK (CoursNbHeuresLabo > 0),
     CONSTRAINT CHK_COURS_NBHEURES_PERSO CHECK (CoursNbHeuresPerso > 0)
 );
+COMMIT;
 
 -- CoursEnseignes
 CREATE TABLE CoursEnseignes (
@@ -121,18 +137,20 @@ CREATE TABLE CoursEnseignes (
     CONSTRAINT CHK_COURSENSEIGNE_SESSION CHECK (REGEXP_LIKE(CoursEnseigneSession, '^[0-9]{4}[123]$')),
     CONSTRAINT CHK_COURSENSEIGNE_GROUPE CHECK (CoursEnseigneGroupe BETWEEN 1 AND 99)
 );
+COMMIT;
 
--- Inscriptions (associations étudiant <-> cours enseigné)
+-- Inscriptions
 CREATE TABLE Inscriptions (
     IdEtudiant                      NUMBER(10),
     IdCoursEnseigne                 NUMBER(10),
-    EtudiantCoursStatut             VARCHAR2(2)     NOT NULL,
+    EtudiantCoursStatut             VARCHAR2(2)     DEFAULT 'X' NOT NULL,
     
     CONSTRAINT PK_INSCRIPTIONS PRIMARY KEY (IdEtudiant, IdCoursEnseigne),
     CONSTRAINT FK_INSCRIPTIONS_ETUDIANT FOREIGN KEY (IdEtudiant) REFERENCES Etudiants (IdEtudiant),
     CONSTRAINT FK_INSCRIPTIONS_COURSENSEIGNE FOREIGN KEY (IdCoursEnseigne) REFERENCES CoursEnseignes (IdCoursEnseigne),
     CONSTRAINT CHK_INSCRIPTIONS_STATUT CHECK (EtudiantCoursStatut IN ('A+','A','A-','B+','B','B-','C+','C','C-','D+','D','S','E','I','X','Y','Z'))
 );
+COMMIT;
 
 -- Activités d'apprentissage
 CREATE TABLE ActivitesApprentissage (
@@ -146,8 +164,9 @@ CREATE TABLE ActivitesApprentissage (
     CONSTRAINT FK_ACTIVITE_COURS FOREIGN KEY (ActiviteCours) REFERENCES Cours (IdCours),
     CONSTRAINT CHK_ACTIVITE_JOUR CHECK (ActiviteJourSemaine BETWEEN 0 AND 6)
 );
+COMMIT;
 
--- Table de prérequis entre cours (relation many-to-many)
+-- Table de cours préalables
 CREATE TABLE CoursPrealables (
     IdCours                         NUMBER(10)    NOT NULL,
     IdCoursPrealable                NUMBER(10)    NOT NULL,
@@ -156,17 +175,15 @@ CREATE TABLE CoursPrealables (
     CONSTRAINT FK_CP_COURS FOREIGN KEY (IdCours) REFERENCES Cours (IdCours),
     CONSTRAINT FK_CP_PREALABLE FOREIGN KEY (IdCoursPrealable) REFERENCES Cours (IdCours)
 );
-
--- Contraintes additionnelles relationnelles
--- Un département peut avoir un directeur qui est un enseignant
-ALTER TABLE Departements
-ADD CONSTRAINT FK_DEPT_DIRECTEUR FOREIGN KEY (DepartementDirecteur) REFERENCES Enseignants (IdEnseignant);
-
 COMMIT;
 
 
+--------------------------------
+----------- TRIGGERS -----------
+--------------------------------
+
 -- Le directeur d'un département doit être un enseignant appartenant à ce département
-CREATE OR REPLACE TRIGGER TRG_DEPT_DIRECTEUR_ENSEIGNANT
+CREATE OR REPLACE TRIGGER TRG_DEPT_DIR_ENSEIGN
 BEFORE UPDATE OF DepartementDirecteur ON Departements
 FOR EACH ROW
 DECLARE
@@ -189,10 +206,10 @@ EXCEPTION
         RAISE_APPLICATION_ERROR(-20002, 'Erreur : L''enseignant désigné comme directeur n''existe pas.');
 END;
 /
-
+COMMIT;
 
 -- Un departement doit avoir un directeur si un cours est donné 
-CREATE OR REPLACE TRIGGER TRG_DEPT_DIRECTEUR_REQUIS
+CREATE OR REPLACE TRIGGER TRG_DEPT_DIR_REQ
 BEFORE INSERT ON CoursEnseignes
 FOR EACH ROW
 DECLARE
@@ -215,10 +232,10 @@ EXCEPTION
         RAISE_APPLICATION_ERROR(-20004, 'Erreur : Enseignant ou département non trouvé lors de la vérification du directeur.');
 END;
 /
-
+COMMIT;
 
 -- Limite de 6 cours par enseignants
-CREATE OR REPLACE TRIGGER TRG_ENSEIGNANT_LIMITE_COURS
+CREATE OR REPLACE TRIGGER TRG_ENSEIGN_LIM_CR
 BEFORE INSERT ON CoursEnseignes
 FOR EACH ROW
 DECLARE
@@ -236,174 +253,69 @@ BEGIN
     END IF;
 END;
 /
+COMMIT;
 
-
--- Annule toute les inscriptions a un cours si moins de 8 inscrits
--- TODO: vérifier si on peut ajouter des inscriptions a la base
-CREATE OR REPLACE TRIGGER TRG_INSCRIPTION_STATUT_AUTO
-FOR INSERT, DELETE ON Inscriptions
-COMPOUND TRIGGER
-
-    -- Collection pour stocker les IdCoursEnseigne affectés
-    TYPE t_cours_id IS TABLE OF CoursEnseignes.IdCoursEnseigne%TYPE INDEX BY PLS_INTEGER;
-    g_cours_affectes t_cours_id;
-
--- 1. Se déclenche APRÈS chaque ligne modifiée (INSERT ou DELETE)
-AFTER EACH ROW IS
+-- Lorsque l'on delete une inscription, si le nombre d'inscription aux CoursEnseigné liée est inférieur a 8, alors ont passe toute ses inscriptions en Inscriptions.EtudiantCoursStatut = 'Z'
+CREATE OR REPLACE TRIGGER TRG_INSCRIPTIONS_UPDATE_Z 
+AFTER DELETE ON Inscriptions
+FOR EACH ROW
+DECLARE
+    v_nb_inscriptions NUMBER;
 BEGIN
-    -- Stocker l'ID du cours affecté.
-    IF INSERTING THEN
-        g_cours_affectes(g_cours_affectes.COUNT + 1) := :NEW.IdCoursEnseigne;
-    ELSIF DELETING THEN
-        g_cours_affectes(g_cours_affectes.COUNT + 1) := :OLD.IdCoursEnseigne;
+    -- Compter le nombre d'inscriptions restantes pour ce cours enseigné
+    SELECT COUNT(*) INTO v_nb_inscriptions
+    FROM Inscriptions
+    WHERE IdCoursEnseigne = :OLD.IdCoursEnseigne;
+
+    -- Si moins de 8 inscriptions, mettre à jour le statut de toutes les inscriptions liées
+    IF v_nb_inscriptions < 8 THEN
+        UPDATE Inscriptions
+        SET EtudiantCoursStatut = 'Z'
+        WHERE IdCoursEnseigne = :OLD.IdCoursEnseigne;
     END IF;
-END AFTER EACH ROW;
-
--- 2. Se déclenche UNE SEULE FOIS après la fin de TOUTE la transaction
-AFTER STATEMENT IS
-    v_nb_inscrits NUMBER;
-    v_id_cours_traite NUMBER;
-BEGIN
-    -- S'il n'y a rien à faire
-    IF g_cours_affectes.COUNT = 0 THEN
-        RETURN;
-    END IF;
-
-    -- 3. Boucler sur tous les cours qui ont été modifiés
-    FOR i IN 1 .. g_cours_affectes.COUNT
-    LOOP
-        v_id_cours_traite := g_cours_affectes(i);
-
-        -- Compter le nombre total d'inscrits pour CE cours
-        SELECT COUNT(*) INTO v_nb_inscrits
-        FROM Inscriptions
-        WHERE IdCoursEnseigne = v_id_cours_traite;
-
-        -- Appliquer la nouvelle règle d'affaire
-        IF v_nb_inscrits < 8 THEN
-            -- ANNULATION : Mettre toutes les inscriptions à 'Z'
-            UPDATE Inscriptions
-            SET EtudiantCoursStatut = 'Z'
-            WHERE IdCoursEnseigne = v_id_cours_traite;
-        ELSE
-            -- RÉACTIVATION : Si le cours n'est plus annulé,
-            -- on réinitialise les statuts 'Z' à ' ' (en cours)
-            UPDATE Inscriptions
-            SET EtudiantCoursStatut = ' '
-            WHERE IdCoursEnseigne = v_id_cours_traite
-              AND EtudiantCoursStatut = 'Z';
-        END IF;
-    END LOOP;
-
-END TRG_INSCRIPTION_STATUT_AUTO;
+END;
 /
-
-
 COMMIT;
 
 
+----------------------------------
+----------- PROCEDURES -----------
+----------------------------------
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
--- -----------------------------------------------------------------
--- Triggers pour appliquer la règle métier :
--- "Un département peut ne pas avoir de directeur, sauf s'il contient
---  au moins un cours via la chaîne Cours->CoursEnseignes->Enseignants."
--- -----------------------------------------------------------------
-
--- 1) Empêcher d'affecter un enseignant à un cours si son département
---    n'a pas de directeur.
-CREATE OR REPLACE TRIGGER trg_coursenseigne_check_directeur
-BEFORE INSERT OR UPDATE ON CoursEnseignes
-FOR EACH ROW
-WHEN (NEW.CourEnseigneEnseignant IS NOT NULL)
-DECLARE
-    v_dept Departements.IdDepartement%TYPE;
-    v_dir  Departements.DepartementDirecteur%TYPE;
+-- Suppression & Création des sequences
 BEGIN
-    SELECT e.EnseignantDepartement
-        INTO v_dept
-        FROM Enseignants e
-     WHERE e.IdEnseignant = :NEW.CourEnseigneEnseignant;
-
-    SELECT d.DepartementDirecteur
-        INTO v_dir
-        FROM Departements d
-     WHERE d.IdDepartement = v_dept;
-
-    IF v_dir IS NULL THEN
-        RAISE_APPLICATION_ERROR(-20010, 'Le département de l''enseignant doit avoir un directeur.');
-    END IF;
+    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_DEPARTEMENTS';
 EXCEPTION
-    WHEN NO_DATA_FOUND THEN
-        RAISE_APPLICATION_ERROR(-20011, 'Enseignant ou département introuvable.');
+    WHEN OTHERS THEN NULL;
 END;
 /
+CREATE SEQUENCE SEQ_DEPARTEMENTS START WITH 1 INCREMENT BY 1 NOCACHE;
+/
 
--- 2) Empêcher de retirer ou supprimer le directeur d'un département
---    si ce département contient des cours (via la chaîne).
-CREATE OR REPLACE TRIGGER trg_dept_protect_directeur
-BEFORE UPDATE OR DELETE ON Departements
-FOR EACH ROW
-DECLARE
-    cnt NUMBER;
+-- Procédure de création d'un département
+CREATE OR REPLACE PROCEDURE P_CREATE_DEPARTEMENT (
+    d_nom IN VARCHAR2,
+    d_num IN NUMBER
+) IS
+    s_id NUMBER;
 BEGIN
-    IF UPDATING AND :NEW.DepartementDirecteur IS NULL THEN
-        SELECT COUNT(*) INTO cnt
-            FROM CoursEnseignes ce JOIN Enseignants e ON ce.CourEnseigneEnseignant = e.IdEnseignant
-         WHERE e.EnseignantDepartement = :OLD.IdDepartement;
-        IF cnt > 0 THEN
-            RAISE_APPLICATION_ERROR(-20012, 'Impossible de retirer le directeur : le département contient des cours.');
-        END IF;
-    END IF;
+    -- Génération de l'identifiant
+    SELECT SEQ_DEPARTEMENTS.NEXTVAL INTO s_id FROM DUAL;
 
-    IF DELETING THEN
-        SELECT COUNT(*) INTO cnt
-            FROM CoursEnseignes ce JOIN Enseignants e ON ce.CourEnseigneEnseignant = e.IdEnseignant
-         WHERE e.EnseignantDepartement = :OLD.IdDepartement;
-        IF cnt > 0 THEN
-            RAISE_APPLICATION_ERROR(-20013, 'Impossible de supprimer le département : il contient des cours.');
-        END IF;
-    END IF;
+    -- Insertion, directeur mis à NULL par défaut
+    INSERT INTO Departements (
+        IdDepartement,
+        DepartementNom,
+        DepartementNum
+    ) VALUES (
+        s_id,
+        d_nom,
+        d_num
+    );
+
+    COMMIT;
 END;
 /
 
--- 3) Empêcher de supprimer/déplacer un enseignant qui est directeur
---    si son département contient des cours.
-CREATE OR REPLACE TRIGGER trg_enseignant_protect_directeur
-BEFORE UPDATE OR DELETE ON Enseignants
-FOR EACH ROW
-DECLARE
-    is_dir NUMBER;
-    cnt    NUMBER;
-BEGIN
-    SELECT COUNT(*) INTO is_dir FROM Departements d WHERE d.DepartementDirecteur = :OLD.IdEnseignant;
-    IF is_dir > 0 THEN
-        SELECT COUNT(*) INTO cnt
-            FROM CoursEnseignes ce JOIN Enseignants e ON ce.CourEnseigneEnseignant = e.IdEnseignant
-         WHERE e.EnseignantDepartement = :OLD.EnseignantDepartement;
-        IF cnt > 0 THEN
-            RAISE_APPLICATION_ERROR(-20014, 'Impossible de supprimer/deplacer cet enseignant : il est directeur et le departement a des cours.');
-        END IF;
-    END IF;
-END;
-/
+-- Exemple d'appel
+EXEC P_CREATE_DEPARTEMENT('Mathematiques', 202);
