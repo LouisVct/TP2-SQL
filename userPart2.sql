@@ -17,35 +17,29 @@ GRANT SELECT ON Inscriptions TO tp2_user;
 GRANT SELECT ON ActivitesApprentissage TO tp2_user;
 GRANT SELECT ON CoursPrealables TO tp2_user;
 
--- Créer des synonymes publics pour faciliter l'accès
--- (optionnel - permet à tp2_user d'utiliser juste "Cours" au lieu de "tp2_admin.Cours")
-CREATE PUBLIC SYNONYM Personnes FOR tp2_admin.Personnes;
-CREATE PUBLIC SYNONYM Departements FOR tp2_admin.Departements;
-CREATE PUBLIC SYNONYM Enseignants FOR tp2_admin.Enseignants;
-CREATE PUBLIC SYNONYM Etudiants FOR tp2_admin.Etudiants;
-CREATE PUBLIC SYNONYM AdresseCivique FOR tp2_admin.AdresseCivique;
-CREATE PUBLIC SYNONYM Cours FOR tp2_admin.Cours;
-CREATE PUBLIC SYNONYM CoursEnseignes FOR tp2_admin.CoursEnseignes;
-CREATE PUBLIC SYNONYM Inscriptions FOR tp2_admin.Inscriptions;
-CREATE PUBLIC SYNONYM ActivitesApprentissage FOR tp2_admin.ActivitesApprentissage;
-CREATE PUBLIC SYNONYM CoursPrealables FOR tp2_admin.CoursPrealables;
-
 COMMIT;
 
 -- =====================================================
 -- TESTS POUR LE RAPPORT
 -- =====================================================
 /*
-Maintenant vous pouvez tester avec tp2_user :
+PROCÉDURE SIMPLE QUI MARCHE :
+
+1. Exécuter userPart1.sql en tant que SYSTEM/SYS
+2. Exécuter cretab.sql + data.sql en tant que tp2_admin  
+3. Exécuter userPart2.sql en tant que tp2_admin
+4. Se connecter en tant que tp2_user et tester
+
+TESTS avec tp2_user :
 
 1. Connectez-vous : sqlplus tp2_user/User123@xe
 
-2. Test lecture (DOIT FONCTIONNER) :
-   SELECT * FROM Cours;
+2. Test lecture (UTILISER tp2_admin.NomTable) :
+   SELECT COUNT(*) FROM tp2_admin.Cours;
+   SELECT * FROM tp2_admin.Departements;
 
-3. Test insertion cours (DOIT ÉCHOUER) :
-   INSERT INTO Cours VALUES (1, 'Test', '8INF111', 'Description test', NULL, 3, 45, 0, 90);
+3. Test insertion (DOIT ÉCHOUER avec ORA-01031) :
+   INSERT INTO tp2_admin.Cours VALUES (999, 'Test', '9TST999', 'Test', NULL, 1, 15, 0, 30);
 
-4. Test insertion enseignant (DOIT ÉCHOUER) :
-   INSERT INTO Enseignants VALUES (1, SYSDATE, 1, 'P1-1001', 1234, '123 Rue Test', 'test@uqac.ca', 1);
+C'EST TOUT ! Ça marche, c'est simple, on utilise juste tp2_admin.NomTable
 */

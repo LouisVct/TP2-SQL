@@ -98,7 +98,7 @@ CREATE TABLE AdresseCivique (
     IdAdresseCivique                NUMBER(10)      PRIMARY KEY,
     AdresseCiviqueTitre             VARCHAR2(30),
     AdresseCivique                  VARCHAR2(100)   NOT NULL,
-    AdresseCiviqueEtudiant          NUMBER(10)      NOT NULL,
+    AdresseCiviqueEtudiant          NUMBER(10)      NOT NULL, -- id étudiant
 
     CONSTRAINT FK_ADRESSE_ETUDIANT FOREIGN KEY (AdresseCiviqueEtudiant) REFERENCES Etudiants (IdEtudiant)
 );
@@ -282,33 +282,35 @@ COMMIT;
 ----------- PROCEDURES -----------
 ----------------------------------
 
--- Suppression & Création des sequences
-BEGIN
-    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_DEPARTEMENTS';
-EXCEPTION
-    WHEN OTHERS THEN NULL;
-END;
+-- Supressions des sequences existantes
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_DEPARTEMENTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -2289 THEN RAISE; END IF; END;
 /
-CREATE SEQUENCE SEQ_DEPARTEMENTS START WITH 1 INCREMENT BY 1 NOCACHE;
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_PERSONNES'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -2289 THEN RAISE; END IF; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_COURS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -2289 THEN RAISE; END IF; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_ADDR_CIVIQUE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -2289 THEN RAISE; END IF; END;
 /
 
--- Procédure de création d'un département
+-- Création de toute les sequences
+CREATE SEQUENCE SEQ_DEPARTEMENTS START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE SEQ_PERSONNES START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE SEQ_COURS START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE SEQ_ADDR_CIVIQUE START WITH 1 INCREMENT BY 1;
+
+-------------------------------------------
+---- Procédure de création d'un département
 CREATE OR REPLACE PROCEDURE P_CREATE_DEPARTEMENT (
     d_nom IN VARCHAR2,
     d_num IN NUMBER
 ) IS
-    s_id NUMBER;
 BEGIN
-    -- Génération de l'identifiant
-    SELECT SEQ_DEPARTEMENTS.NEXTVAL INTO s_id FROM DUAL;
-
-    -- Insertion, directeur mis à NULL par défaut
     INSERT INTO Departements (
         IdDepartement,
         DepartementNom,
         DepartementNum
     ) VALUES (
-        s_id,
+        SEQ_DEPARTEMENTS.NEXTVAL,
         d_nom,
         d_num
     );
@@ -317,5 +319,429 @@ BEGIN
 END;
 /
 
--- Exemple d'appel
-EXEC P_CREATE_DEPARTEMENT('Mathematiques', 202);
+------------------------------------------------------------
+---- Procédure d'assignation d'un directeur à un département
+CREATE OR REPLACE PROCEDURE P_DEP_ASSIGN_DIR (
+    d_idDepartement IN NUMBER,
+    d_idEnseignant  IN NUMBER
+) IS
+BEGIN
+    UPDATE Departements SET DepartementDirecteur = d_idEnseignant WHERE IdDepartement = d_idDepartement;
+    COMMIT;
+END;
+/
+
+-------------------------------------------------------------------------------
+---- Procédure de création d'un enseignant (incluant la personne si nécessaire)
+CREATE OR REPLACE PROCEDURE P_CREATE_ENSEIGNANT (
+    -- Personne
+    p_nom              IN VARCHAR2,
+    p_prenom           IN VARCHAR2,
+    p_nas              IN NUMBER,
+    p_courriel         IN VARCHAR2,
+    p_tel              IN VARCHAR2,
+    p_date_naissance   IN DATE,
+
+    -- Enseignant
+    e_statut           IN NUMBER,
+    e_num_local        IN VARCHAR2,
+    e_num_poste        IN NUMBER,
+    e_adresse_civique  IN VARCHAR2,
+    e_courriel         IN VARCHAR2,
+    e_departement      IN NUMBER
+) IS
+    v_id_personne      NUMBER;
+    v_nb_personnes     NUMBER;
+BEGIN
+    -- Vérifier si une personne existe déjà via son numéro d'assurance sociale
+    SELECT COUNT(*) INTO v_nb_personnes FROM Personnes WHERE PersonneNumeroAssuranceSocial = p_nas;
+
+    IF v_nb_personnes > 0 THEN
+        -- Une personne existe déjà -> récupérer son identifiant
+        SELECT IdPersonne INTO v_id_personne FROM Personnes WHERE PersonneNumeroAssuranceSocial = p_nas;
+
+        -- La mettre a jour
+        UPDATE Personnes
+        SET PersonneNom = p_nom,
+            PersonnePrenom = p_prenom,
+            PersonneCourriel = p_courriel,
+            PersonneTel = p_tel,
+            PersonneDateDeNaissance = p_date_naissance
+        WHERE IdPersonne = v_id_personne;
+
+    ELSE
+    
+        -- Générer une nouvelle personne
+        SELECT SEQ_PERSONNES.NEXTVAL INTO v_id_personne FROM DUAL;
+
+        INSERT INTO Personnes (IdPersonne, PersonneNom, PersonnePrenom, PersonneNumeroAssuranceSocial, PersonneCourriel, PersonneTel, PersonneDateDeNaissance) VALUES 
+        (
+            v_id_personne,
+            p_nom,
+            p_prenom,
+            p_nas,
+            p_courriel,
+            p_tel,
+            p_date_naissance
+        );
+    END IF;
+
+    -- Créer l'enseignant
+    INSERT INTO Enseignants (IdEnseignant, EnseignantStatutEnseignant, EnseignantNumLocal, EnseignantNumPoste, EnseignantAdresseCivique, EnseignantCourriel, EnseignantDepartement) VALUES
+    (
+        v_id_personne,
+        e_statut,
+        e_num_local,
+        e_num_poste,
+        e_adresse_civique,
+        e_courriel,
+        e_departement
+    );
+
+    COMMIT;
+END;
+/
+
+--------------------------------------------------
+---- Modifier un enseignant (incluant la personne)
+CREATE OR REPLACE PROCEDURE P_UPDATE_ENSEIGNANT (
+    p_id_personne            IN NUMBER,
+
+    -- Personne
+    p_nom                    IN VARCHAR2,
+    p_prenom                 IN VARCHAR2,
+    p_nas                    IN NUMBER,
+    p_courriel_personne      IN VARCHAR2,
+    p_tel                    IN VARCHAR2,
+    p_date_naissance         IN DATE,
+
+    -- Enseignant
+    e_statut                 IN NUMBER,
+    e_num_local              IN VARCHAR2,
+    e_num_poste              IN NUMBER,
+    e_adresse_civique        IN VARCHAR2,
+    e_courriel_enseignant    IN VARCHAR2,
+    e_departement            IN NUMBER
+) IS
+BEGIN
+    UPDATE Personnes
+    SET PersonneNom = p_nom,
+        PersonnePrenom = p_prenom,
+        PersonneNumeroAssuranceSocial = p_nas,
+        PersonneCourriel = p_courriel_personne,
+        PersonneTel = p_tel,
+        PersonneDateDeNaissance = p_date_naissance
+    WHERE IdPersonne = p_id_personne;
+
+    UPDATE Enseignants
+    SET EnseignantStatutEnseignant = e_statut,
+        EnseignantNumLocal = e_num_local,
+        EnseignantNumPoste = e_num_poste,
+        EnseignantAdresseCivique = e_adresse_civique,
+        EnseignantCourriel = e_courriel_enseignant,
+        EnseignantDepartement = e_departement
+    WHERE IdEnseignant = p_id_personne;
+
+    COMMIT;
+END;
+/
+
+----------------------------------------------------------------
+---- Création d'un étudiant (incluant la personne si nécessaire)
+CREATE OR REPLACE PROCEDURE P_CREATE_ETUDIANT (
+    -- Personne
+    p_nom                  IN VARCHAR2,
+    p_prenom               IN VARCHAR2,
+    p_nas                  IN NUMBER,
+    p_courriel_personne    IN VARCHAR2,
+    p_tel                  IN VARCHAR2,
+    p_date_naissance       IN DATE,
+
+    -- Etudiant
+    s_code_permanent       IN VARCHAR2,
+    s_statut               IN VARCHAR2,
+    s_courriel             IN VARCHAR2,
+    s_departement          IN NUMBER
+) IS
+    v_id_personne NUMBER;
+    v_nb_personnes       NUMBER;
+BEGIN
+    -- Vérifier si une personne existe déjà via son numéro d'assurance sociale
+    SELECT COUNT(*) INTO v_nb_personnes FROM Personnes WHERE PersonneNumeroAssuranceSocial = p_nas;
+
+    IF v_nb_personnes > 0 THEN
+
+        -- Une personne existe déjà -> récupérer son identifiant
+        SELECT IdPersonne INTO v_id_personne FROM Personnes WHERE PersonneNumeroAssuranceSocial = p_nas;
+
+        -- La mettre a jour
+        UPDATE Personnes
+        SET PersonneNom = p_nom,
+            PersonnePrenom = p_prenom,
+            PersonneCourriel = p_courriel_personne,
+            PersonneTel = p_tel,
+            PersonneDateDeNaissance = p_date_naissance
+        WHERE IdPersonne = v_id_personne;
+    ELSE
+        -- Générer une nouvelle personne
+        SELECT SEQ_PERSONNES.NEXTVAL INTO v_id_personne FROM DUAL;
+
+        INSERT INTO Personnes (IdPersonne, PersonneNom, PersonnePrenom, PersonneNumeroAssuranceSocial, PersonneCourriel, PersonneTel, PersonneDateDeNaissance) VALUES
+        (
+            v_id_personne,
+            p_nom,
+            p_prenom,
+            p_nas,
+            p_courriel_personne,
+            p_tel,
+            p_date_naissance
+        );
+    END IF;
+
+    -- Créer l'étudiant
+    INSERT INTO Etudiants (IdEtudiant, EtudiantCodePermanent, EtudiantStatut, EtudiantCourriel, EtudiantDepartement) VALUES
+    (
+        v_id_personne,
+        s_code_permanent,
+        s_statut,
+        s_courriel,
+        s_departement
+    );
+
+    COMMIT;
+END;
+/
+
+-- Procédure de modification d'un étudiant et de la personne liée (utilise IdPersonne)
+CREATE OR REPLACE PROCEDURE P_UPDATE_ETUDIANT (
+    p_id_personne           IN NUMBER,
+
+    -- champs Personne
+    p_nom                   IN VARCHAR2,
+    p_prenom                IN VARCHAR2,
+    p_nas                   IN NUMBER,
+    p_courriel_personne     IN VARCHAR2,
+    p_tel                   IN VARCHAR2 DEFAULT NULL,
+    p_date_naissance        IN DATE DEFAULT NULL,
+
+    -- champs Etudiant
+    s_code_permanent        IN VARCHAR2,
+    s_statut                IN VARCHAR2, -- attendu VARCHAR2(1)
+    s_courriel              IN VARCHAR2,
+    s_departement           IN NUMBER
+) IS
+BEGIN
+    -- Met à jour la personne
+    UPDATE Personnes
+    SET PersonneNom = p_nom,
+        PersonnePrenom = p_prenom,
+        PersonneNumeroAssuranceSocial = p_nas,
+        PersonneCourriel = p_courriel_personne,
+        PersonneTel = p_tel,
+        PersonneDateDeNaissance = p_date_naissance
+    WHERE IdPersonne = p_id_personne;
+
+    -- Met à jour l'étudiant
+    UPDATE Etudiants
+    SET EtudiantCodePermanent = s_code_permanent,
+        EtudiantStatut = s_statut,
+        EtudiantCourriel = s_courriel,
+        EtudiantDepartement = s_departement
+    WHERE IdEtudiant = p_id_personne;
+
+    COMMIT;
+END;
+/
+
+------------------------------------------
+---- Modifier un étudiant (et la personne)
+CREATE OR REPLACE PROCEDURE P_UPDATE_ETUDIANT (
+    p_id_personne           IN NUMBER,
+
+    -- champs Personne
+    p_nom                   IN VARCHAR2,
+    p_prenom                IN VARCHAR2,
+    p_nas                   IN NUMBER,
+    p_courriel_personne     IN VARCHAR2,
+    p_tel                   IN VARCHAR2,
+    p_date_naissance        IN DATE,
+
+    -- champs Etudiant
+    s_code_permanent        IN VARCHAR2,
+    s_statut                IN VARCHAR2,
+    s_courriel              IN VARCHAR2,
+    s_departement           IN NUMBER
+) IS
+BEGIN
+    -- Met à jour la personne
+    UPDATE Personnes
+    SET PersonneNom = p_nom,
+        PersonnePrenom = p_prenom,
+        PersonneNumeroAssuranceSocial = p_nas,
+        PersonneCourriel = p_courriel_personne,
+        PersonneTel = p_tel,
+        PersonneDateDeNaissance = p_date_naissance
+    WHERE IdPersonne = p_id_personne;
+
+    -- Met à jour l'étudiant
+    UPDATE Etudiants
+    SET EtudiantCodePermanent = s_code_permanent,
+        EtudiantStatut = s_statut,
+        EtudiantCourriel = s_courriel,
+        EtudiantDepartement = s_departement
+    WHERE IdEtudiant = p_id_personne;
+
+    COMMIT;
+END;
+/
+
+------------------------------------------------------------------
+---- Procédure de modification d'une adresse civique d'un étudiant
+CREATE OR REPLACE PROCEDURE P_UPDATE_ETU_ADR_CIVIQUE (
+    p_id_adresse_civique    IN NUMBER,
+    p_adresse_civique_titre IN VARCHAR2,
+    p_adresse_civique       IN VARCHAR2,
+    p_id_etudiant           IN NUMBER
+) IS
+BEGIN
+    UPDATE AdresseCivique
+    SET IdAdresseCivique = p_id_adresse_civique,
+        AdresseCiviqueTitre = p_adresse_civique_titre,
+        AdresseCivique = p_adresse_civique,
+        AdresseCiviqueEtudiant = p_id_etudiant
+
+    WHERE IdAdresseCivique = p_id_adresse_civique;
+
+    COMMIT;
+END;
+/
+
+------------------------------------------------------------------
+---- Procédure d'ajout d'une adresse civique d'un étudiant
+
+CREATE OR REPLACE PROCEDURE P_CREATE_ETU_ADR_CIVIQUE (
+    p_adresse_civique_titre IN VARCHAR2,
+    p_adresse_civique       IN VARCHAR2,
+    p_id_etudiant           IN NUMBER
+        
+) IS
+BEGIN
+    INSERT INTO AdresseCivique(IdAdresseCivique, AdresseCiviqueTitre, AdresseCivique, AdresseCiviqueEtudiant) VALUES
+    (
+        SEQ_ADDR_CIVIQUE.NEXTVAL,
+        p_adresse_civique_titre,
+        p_adresse_civique,
+        p_id_etudiant
+    );
+
+    COMMIT;
+END;
+/
+
+------------------------
+---- Création d'un cours
+CREATE OR REPLACE PROCEDURE P_CREATE_COURS (
+    p_titre               IN VARCHAR2,
+    p_sigle               IN VARCHAR2,
+    p_description         IN VARCHAR2,
+    p_site_web            IN VARCHAR2,
+    p_nb_credits          IN NUMBER,
+    p_nb_heures_cours     IN NUMBER,
+    p_nb_heures_labo      IN NUMBER,
+    p_nb_heures_perso     IN NUMBER
+) IS
+BEGIN
+    INSERT INTO Cours (IdCours, CoursTitre, CoursSigle, CoursDescription, CoursAdresseSiteWeb, CoursNbCredits, CoursNbHeuresCours, CoursNbHeuresLabo, CoursNbHeuresPerso) VALUES
+    (
+        SEQ_COURS.NEXTVAL,
+        p_titre,
+        p_sigle,
+        p_description,
+        p_site_web,
+        p_nb_credits,
+        p_nb_heures_cours,
+        p_nb_heures_labo,
+        p_nb_heures_perso
+    );
+
+    COMMIT;
+END;
+/
+
+----------------------------
+---- Modification d'un cours
+CREATE OR REPLACE PROCEDURE P_UPDATE_COURS (
+    p_id_cours            IN NUMBER,
+    p_titre               IN VARCHAR2,
+    p_sigle               IN VARCHAR2,
+    p_description         IN VARCHAR2,
+    p_site_web            IN VARCHAR2,
+    p_nb_credits          IN NUMBER,
+    p_nb_heures_cours     IN NUMBER,
+    p_nb_heures_labo      IN NUMBER,
+    p_nb_heures_perso     IN NUMBER
+) IS
+BEGIN
+    UPDATE Cours
+    SET CoursTitre = p_titre,
+        CoursSigle = p_sigle,
+        CoursDescription = p_description,
+        CoursAdresseSiteWeb = p_site_web,
+        CoursNbCredits = p_nb_credits,
+        CoursNbHeuresCours = p_nb_heures_cours,
+        CoursNbHeuresLabo = p_nb_heures_labo,
+        CoursNbHeuresPerso = p_nb_heures_perso
+    WHERE IdCours = p_id_cours;
+
+    COMMIT;
+END;
+/
+
+--------------------------------
+---- Assigner un cours préalable
+CREATE OR REPLACE PROCEDURE P_ASSIGNER_COURS_PREALABLE (
+    p_id_cours             IN NUMBER,
+    p_id_cours_prealable   IN NUMBER
+) IS
+    v_count NUMBER;
+BEGIN
+    -- On compte les doublons
+    SELECT COUNT(*) INTO v_count FROM CoursPrealables WHERE IdCours = p_id_cours AND IdCoursPrealable = p_id_cours_prealable;
+
+    -- S'il n'y en a pas, on insère l'enregistrement
+    IF v_count = 0 THEN
+        INSERT INTO CoursPrealables (IdCours, IdCoursPrealable) VALUES
+        (
+            p_id_cours,
+            p_id_cours_prealable
+        );
+
+        COMMIT;
+    END IF;
+END;
+/
+
+--------------------------------------------
+---- Supprimer un cours préalable d'un cours
+CREATE OR REPLACE PROCEDURE P_SUPPRIMER_COURS_PREALABLE (
+    p_id_cours             IN NUMBER,
+    p_id_cours_prealable   IN NUMBER
+) IS
+BEGIN
+    DELETE FROM CoursPrealables WHERE IdCours = p_id_cours AND IdCoursPrealable = p_id_cours_prealable;
+
+    COMMIT;
+END;
+/
+
+---------------------------------------
+---- Assigner un départ d'un enseignant
+CREATE OR REPLACE PROCEDURE P_ASSIGNER_DEPART (
+    p_id_enseignant   IN NUMBER
+) IS
+BEGIN
+    UPDATE Enseignants SET EnseignantStatutEnseignant = 0 WHERE IdEnseignant = p_id_enseignant;
+
+    COMMIT;
+END;
+/
